@@ -6,9 +6,14 @@
 //
 
 import Foundation
+import UniformTypeIdentifiers
 
-struct RichTextConstants {
+public struct RichTextConstants {
     
     static let zeroWidthSpace = "\u{200B}"
-    static let rtfdExtension = ".rtfd"
+    public static let rtfdslExtension = ".rtfdsl"
+}
+
+extension UTType {
+    static let rtfdsl = UTType(exportedAs: "com.seeworkgrow.rtf-editor.rtfdsl")
 }

@@ -88,6 +88,7 @@ struct FontInspectorView: View {
                     .id(family)
                 }
             }
+            .listStyle(.plain)
             .navigationTitle("Fonts")
             .onAppear {
                 DispatchQueue.main.async {

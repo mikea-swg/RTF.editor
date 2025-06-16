@@ -7,17 +7,17 @@
 
 import SwiftUI
 
-struct TextInspectorView: View {
+public struct TextInspectorView: View {
 
-    @Bindable var attributes: TextAttributes
-    @Binding var contentHeight: CGFloat
-    var onAttributesChanged: ((_ attributes: TextAttributes, _ insertNewList: Bool) -> Void)?
+    @Bindable public var attributes: TextAttributes
+    @Binding public var contentHeight: CGFloat
+    public var onAttributesChanged: ((_ attributes: TextAttributes, _ insertNewList: Bool) -> Void)?
     
     @Environment(\.horizontalSizeClass) var horizontalSizeClass
     
     //MARK: - Body
     
-    var body: some View {
+    public var body: some View {
                     
         Form {
             Section {
@@ -50,7 +50,7 @@ struct TextInspectorView: View {
                 self.contentHeight = contentHeight
             }
         })
-        .scrollDisabled(true)
+//        .scrollDisabled(true)
 #endif
     }
 }

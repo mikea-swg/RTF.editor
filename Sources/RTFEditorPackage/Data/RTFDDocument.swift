@@ -11,8 +11,8 @@ import SwiftUI
 
 public struct RTFDDocument: FileDocument, @unchecked Sendable {
     
-    nonisolated(unsafe) public static var readableContentTypes: [UTType] = [.rtfd]
-    nonisolated(unsafe) public static var writableContentTypes: [UTType] = [.rtfd]
+    nonisolated(unsafe) public static var readableContentTypes: [UTType] = [.rtfdsl]
+    nonisolated(unsafe) public static var writableContentTypes: [UTType] = [.rtfdsl]
 
     let attributedString: NSAttributedString
     let imageMetadataDict: [UUID: ImageMetadata]
@@ -23,11 +23,9 @@ public struct RTFDDocument: FileDocument, @unchecked Sendable {
     }
 
     public init(configuration: ReadConfiguration) throws {
-        let (attrText, imageMetadata) = try TextViewImportExport.loadFromRTFD(fileWrapper: configuration.file)
-        self.attributedString = attrText
-        self.imageMetadataDict = imageMetadata.reduce(into: [UUID: ImageMetadata](), { partialResult, metadata in
-            partialResult[metadata.id] = metadata
-        })
+        let result = try TextViewImportExport.loadFromRTFD(fileWrapper: configuration.file)
+        self.attributedString = result.text
+        self.imageMetadataDict = result.metadata
     }
 
     public func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
@@ -36,5 +34,4 @@ public struct RTFDDocument: FileDocument, @unchecked Sendable {
             imageMetadataDict: imageMetadataDict
         )
     }
-
 }

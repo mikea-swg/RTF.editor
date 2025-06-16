@@ -38,11 +38,14 @@ struct TextAttachmentFactory {
                 
         let scaledImage = existingMetadata != nil ? image : self.resizeImage(image)
         
-        let metadata = existingMetadata ?? ImageMetadata(image: scaledImage)
+        var defaultSize = scaledImage.size
         
         if scaledImage.size.width > textView.frame.width * 0.8 {
-            metadata.resizeImage(maxWidth: textView.frame.width * 0.8)
+            defaultSize = CGSize(width: textView.frame.width * 0.8,
+                                 height: textView.frame.width * 0.8 / (defaultSize.width / defaultSize.height))
         }
+        
+        let metadata = existingMetadata ?? ImageMetadata(image: scaledImage, defaultSize: defaultSize)
         
         // Create text attachment
         let attachment = MetadataTextAttachment()

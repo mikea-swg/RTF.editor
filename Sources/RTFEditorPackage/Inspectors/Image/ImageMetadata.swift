@@ -35,9 +35,10 @@ public final class ImageMetadata: Codable {
     }
     
     let id: UUID
-    let originalSize: CGSize
+    private let defaultSize: CGSize
+    let maxSize: CGSize
     let originalAspectRatio: CGFloat
-    
+
     // Size
     var width: CGFloat
     var height: CGFloat
@@ -79,13 +80,15 @@ public final class ImageMetadata: Codable {
         
     //MARK: - Initialization
     
-    init(image: UIImage) {
+    init(image: UIImage, defaultSize: CGSize) {
         
         self.id = UUID()
-        self.width = image.size.width
-        self.height = image.size.height
-        
-        self.originalSize = image.size
+        self.width = defaultSize.width
+        self.height = defaultSize.height
+
+        self.defaultSize = defaultSize
+        self.maxSize = image.size
+
         self.originalAspectRatio = image.size.width / image.size.height
     }
     
@@ -95,7 +98,8 @@ public final class ImageMetadata: Codable {
         case _width                 = "width"
         case _height                = "height"
         case _lockAspectRatio       = "lock_aspect_ratio"
-        case originalSize           = "original_size"
+        case defaultSize            = "default_size"
+        case maxSize                = "max_size"
         case originalAspectRatio    = "original_aspect_ratio"
         case _rotation              = "rotation"
         case _isFlippedHorizontal   = "is_flipped_horizontal"
@@ -111,21 +115,12 @@ public final class ImageMetadata: Codable {
         case _shadowColorStorage    = "shadow_color"
     }
     
-    //MARK: - Resize
-    
-    func resizeImage(maxWidth: CGFloat) {
-        width = maxWidth
-        if lockAspectRatio {
-            height = maxWidth / originalAspectRatio
-        }
-    }
-    
     //MARK: - Reset
     
     func resetSize() {
         
-        width = originalSize.width
-        height = originalSize.height
+        width = defaultSize.width
+        height = defaultSize.height
         lockAspectRatio = DefaultValue.lockAspectRatio
     }
     

@@ -130,7 +130,7 @@ public struct RTFEditorView: View {
         }
         .fileImporter(
             isPresented: $isImporting,
-            allowedContentTypes: [.rtfd],
+            allowedContentTypes: [.rtfdsl],
             allowsMultipleSelection: false
         ) { result in
             switch result {
@@ -138,8 +138,8 @@ public struct RTFEditorView: View {
                 guard let url = urls.first else { return }
                 
                 do {
-                    try interactor.onLoadFileAtUrl?(url)
-                    documentName = url.lastPathComponent.replacingOccurrences(of: RichTextConstants.rtfdExtension, with: "")
+                    try interactor.loadRTFD(url: url)
+                    documentName = url.lastPathComponent.replacingOccurrences(of: RichTextConstants.rtfdslExtension, with: "")
                 } catch {
                     importError = error
                 }
@@ -156,7 +156,7 @@ public struct RTFEditorView: View {
         
         Button {
             interactor.cleanupTempFiles(fileName: documentName)
-            documentToExport = interactor.onExport?()
+            documentToExport = interactor.exportAsRTFDDocument()
         } label: {
             toolbarButton(icon: "square.and.arrow.up", title: "Export")
                 .foregroundColor(.accentColor)
@@ -166,12 +166,11 @@ public struct RTFEditorView: View {
             isPresented: Binding(get: { documentToExport != nil },
                                  set: { if $0 == false { documentToExport = nil } }),
             document: documentToExport,
-            contentType: .rtfd,
+            contentType: .rtfdsl,
             defaultFilename: documentName
         ) { result in
             switch result {
             case .success(let url):
-                interactor.onClearText?()
                 print("Exported successfully to: \(url)")
             case .failure(let error):
                 self.exportError = error
@@ -211,10 +210,10 @@ public struct RTFEditorView: View {
             EmptyView()
         case .image(let metadata):
             ImageInspectorView(metadata: metadata,
-                               onMetadataChanged: {
-                interactor.onImageMetadataChanged?(metadata)
-            }, onDelete: {
-                interactor.onDeleteImageWithMetadata?(metadata)
+                               onMetadataChanged: { _ in
+                interactor.updateImageMetadata(metadata)
+            }, onDelete: { _ in
+                interactor.deleteImageWithMetadata(metadata)
                 interactor.inspectorState = .closed
             })
             .frame(minWidth: 350.0, maxWidth: .infinity)
@@ -239,7 +238,6 @@ public struct RTFEditorView: View {
             .presentationDragIndicator(.visible)
 #endif
             .frame(minWidth: 350.0, maxWidth: .infinity)
-            
         }
     }
 }

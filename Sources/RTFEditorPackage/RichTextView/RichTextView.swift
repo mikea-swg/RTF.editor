@@ -11,28 +11,57 @@ import UniformTypeIdentifiers
 
 public class RichTextView: UITextView, UITextPasteDelegate {
     
-    public var interactor: RichTextViewInteractor? {
-        didSet {
-            interactorSetup()
-        }
-    }
+    public let interactor: RichTextViewInteractor?
     
     internal var imageMetadataDict: [UUID: ImageMetadata] = [:]
     
     //MARK: - Initialization
     
-    override init(frame: CGRect, textContainer: NSTextContainer?) {
-        super.init(frame: frame, textContainer: textContainer)
+    required init(interactor: RichTextViewInteractor) {
         
-        self.addInteraction(UIDropInteraction(delegate: self))
-        self.delegate = self
+        self.interactor = interactor
+        super.init(frame: .zero, textContainer: nil)
+
+        setup()
     }
     
     required init?(coder: NSCoder) {
+        
+        self.interactor = nil
         super.init(coder: coder)
+        
+        setup()
+    }
+    
+    //MARK: - Setup
+    
+    private func setup() {
+        
+        interactorSetup()
         
         self.addInteraction(UIDropInteraction(delegate: self))
         self.delegate = self
+        
+        setupPlaceholder()
+        
+        if let interactor, interactor.currentText.length > 0 {
+            /// Sometimes SwiftUI creates new UIViewRepresentable and our current text dissappears.
+            /// This will save the state.
+            self.attributedText = interactor.currentText
+            textViewDidChange(self)
+        }
+    }
+    
+    var placeholderLabel: UILabel!
+    
+    private func setupPlaceholder() {
+        
+        placeholderLabel = UILabel()
+        placeholderLabel.text = "Enter notes..."
+        placeholderLabel.textColor = .placeholderText
+        placeholderLabel.sizeToFit()
+        addSubview(placeholderLabel)
+        placeholderLabel.frame.origin = CGPoint(x: 8, y: 8)
     }
     
     //MARK: - Interactor
@@ -41,33 +70,10 @@ public class RichTextView: UITextView, UITextPasteDelegate {
         
         guard let interactor else { return }
         
-        interactor.onLoadFile = { [weak self] filename in
-            try? self?.loadRTFD(filename: filename)
-        }
+        interactor.textView = self
         
-        interactor.onLoadFileAtUrl = { [weak self] url in
-            try self?.loadRTFD(url: url)
-        }
-        
-        interactor.onExportToFile = { [weak self] filename in
-            try? self?.exportToRTFD(filename: filename)
-        }
-        
-        interactor.onExport = { [weak self] in
-            self?.exportToRTFD()
-        }
-        
-        interactor.onClearText = { [weak self] in
-            self?.attributedText = NSAttributedString(string: "")
-            self?.imageMetadataDict.removeAll()
-        }
-        
-        interactor.onImageMetadataChanged = { [weak self] metadata in
-            self?.updateImageMetadata(metadata)
-        }
-        
-        interactor.onDeleteImageWithMetadata = { [weak self] metadata in
-            self?.deleteImageWithMetadata(metadata)
+        interactor.onTextLoaded = { [weak self] text in
+            self?.attributedText = text
         }
         
         interactor.onTextAttributesChanged = { [weak self] attributes, insertNewList in
@@ -119,154 +125,13 @@ public class RichTextView: UITextView, UITextPasteDelegate {
                 guard let image = object as? UIImage else { return }
                 
                 DispatchQueue.main.async {
-                    self.insertImage(image)
+                    self.interactor?.insertImage(image)
+                    self.textViewDidChange(self) /// If the text is empty we need to trigger placeholder hide.
                 }
             }
         }
         
         super.paste(sender)
-    }
-    
-    //MARK: - Import
-    
-    func loadRTFD(filename: String) throws {
-        
-        let result = try TextViewImportExport.loadTextViewFromRTF(filename: filename)
-        
-        self.imageMetadataDict = result
-            .metadata
-            .reduce(into: [UUID: ImageMetadata](), { partialResult, metadata in
-                partialResult[metadata.id] = metadata
-            })
-        
-        let newString = replaceTextAttachments(in: result.text)
-        self.attributedText = newString
-    }
-
-    func loadRTFD(url: URL) throws {
-        
-        let result = try TextViewImportExport.loadTextViewFromRTF(url: url)
-        
-        self.imageMetadataDict = result
-            .metadata
-            .reduce(into: [UUID: ImageMetadata](), { partialResult, metadata in
-                partialResult[metadata.id] = metadata
-            })
-        
-        let newString = replaceTextAttachments(in: result.text)
-        self.attributedText = newString
-    }
-    
-    internal func replaceTextAttachments(in attributedString: NSAttributedString) -> NSAttributedString {
-        
-        let mutableString = NSMutableAttributedString(attributedString: attributedString)
-        
-        let range = NSRange(location: 0, length: mutableString.length)
-        
-        mutableString.enumerateAttribute(.attachment, in: range, options: []) { value, attachmentRange, stop in
-            guard let originalAttachment = value as? NSTextAttachment,
-                  let fileWrapper = originalAttachment.fileWrapper,
-                  let filename = fileWrapper.filename,
-                  let uuid = TextAttachmentFactory.metadataIdFromFileWrapperName(filename),
-                  let metadata = self.imageMetadataDict[uuid] else {
-                return
-            }
-            
-            guard originalAttachment is MetadataTextAttachment == false else { return }
-            
-            // Create new styled attachment
-            let styledAttachment = MetadataTextAttachment()
-            styledAttachment.fileWrapper = fileWrapper
-            styledAttachment.metadata = metadata
-            styledAttachment.onTap = { [weak self] metadata in
-                self?.interactor?.inspectorState = .image(metadata: metadata)
-            }
-            
-            // Replace the attachment
-            mutableString.addAttribute(.attachment, value: styledAttachment, range: attachmentRange)
-        }
-        
-        return mutableString
-    }
-    
-    //MARK: - Export
-    
-    func exportToRTFD(filename: String) throws {
-        
-        guard let attributedText else { return }
-        
-        try TextViewImportExport.exportTextViewToRTF(attributedText: attributedText, imageMetadataDict: imageMetadataDict, filename: filename)
-        imageMetadataDict.removeAll()
-        self.attributedText = NSAttributedString(string: "")
-    }
-
-    func exportToRTFD() -> RTFDDocument? {
-        
-        guard let attributedText else {
-            return nil
-        }
-        
-        let document = RTFDDocument(attributedString: attributedText, imageMetadataDict: imageMetadataDict)
-        return document
-    }
-    
-    //MARK: - Metadata Updates
-    
-    private func updateImageMetadata(_ metadata: ImageMetadata) {
-        // Update the stored metadata
-        imageMetadataDict[metadata.id] = metadata
-        
-        // Find and update the specific attachment
-        updateAttachmentWithId(metadata.id, newMetadata: metadata)
-    }
-    
-    private func updateAttachmentWithId(_ id: UUID, newMetadata: ImageMetadata) {
-        guard let attributedText = self.attributedText else { return }
-        
-        let mutableString = NSMutableAttributedString(attributedString: attributedText)
-        let range = NSRange(location: 0, length: mutableString.length)
-        
-        mutableString.enumerateAttribute(.attachment, in: range, options: []) { value, attachmentRange, stop in
-            guard let attachment = value as? MetadataTextAttachment,
-                  let fileWrapper = attachment.fileWrapper,
-                  let filename = fileWrapper.filename,
-                  let uuid = TextAttachmentFactory.metadataIdFromFileWrapperName(filename),
-                  uuid == id else {
-                return
-            }
-            
-            // Update the metadata in the attachment
-            attachment.metadata = newMetadata
-            
-            // Force the view provider to reload by invalidating the layout
-            self.invalidateAttachmentAtRange(attachmentRange)
-            
-            // Stop enumeration since we found our attachment
-            stop.pointee = true
-        }
-    }
-    
-    private func invalidateAttachmentAtRange(_ range: NSRange) {
-        // For UITextView, the most reliable approach is to trigger a layout update
-        // The attachment view providers will be recreated automatically
-        
-        DispatchQueue.main.async {
-            // Method 1: Force layout invalidation
-            self.setNeedsLayout()
-            self.layoutIfNeeded()
-            
-            // Method 2: If Method 1 doesn't work reliably, use this approach:
-            // Store current state
-            let selectedRange = self.selectedRange
-            let scrollPosition = self.contentOffset
-            
-            // Trigger a text change notification to force refresh
-            self.textStorage.edited(.editedAttributes, range: range, changeInLength: 0)
-            
-            // Restore state
-            self.selectedRange = selectedRange
-            self.contentOffset = scrollPosition
-        }
     }
     
     //MARK: - Text Attributes Updates
@@ -282,13 +147,14 @@ public class RichTextView: UITextView, UITextPasteDelegate {
         let newAttributes = attributes.toAttributedStringKeyDict()
         textStorage.addAttributes(newAttributes, range: nsRange)
         
-        if nsRange.length == 0, let paragraphRange = getParagraphRange(at: nsRange.location) {
+        // nsRange.length == 0,
+        if let paragraphRange = getParagraphRange(at: nsRange.location) {
             
             let attributes = textStorage.attributes(at: paragraphRange.location, effectiveRange: nil)
             if let paragraphStyle = attributes[.paragraphStyle] as? NSParagraphStyle, paragraphStyle.textLists.count > 0 {
                 
                 /// This way we remove list if it's empty.
-                if paragraphRange.length > 0 {
+                if paragraphRange.length > 0 && insertNewList == false {
                     textStorage.addAttributes(newAttributes, range: paragraphRange)
                     
                     let paragraphText = (textStorage.string as NSString).substring(with: paragraphRange)
@@ -305,9 +171,8 @@ public class RichTextView: UITextView, UITextPasteDelegate {
         
         self.typingAttributes = attributes.toAttributedStringKeyDict()
         
-        if selectedRange.length == 0 &&
-            insertNewList,
-           nsRange.location <= textStorage.length {
+        // nsRange.length == 0 &&
+        if insertNewList && nsRange.location <= textStorage.length {
             
             var isParagraphEmpty: Bool = true
             let paragraphRange = getParagraphRange(at: nsRange.location)
@@ -484,60 +349,6 @@ public class RichTextView: UITextView, UITextPasteDelegate {
             selectedRange = NSRange(location: newCursor, length: 0)
         }
     }
-
-    //MARK: - Image Deleting
-    
-    private func deleteImageWithMetadata(_ metadata: ImageMetadata) {
-        guard let attributedText = self.attributedText else { return }
-        
-        let mutableString = NSMutableAttributedString(attributedString: attributedText)
-        let range = NSRange(location: 0, length: mutableString.length)
-        var attachmentRangeToDelete: NSRange?
-        
-        // Find the attachment with matching metadata
-        mutableString.enumerateAttribute(.attachment, in: range, options: []) { value, attachmentRange, stop in
-            guard let attachment = value as? MetadataTextAttachment,
-                  let fileWrapper = attachment.fileWrapper,
-                  let filename = fileWrapper.filename,
-                  let uuid = TextAttachmentFactory.metadataIdFromFileWrapperName(filename),
-                  uuid == metadata.id else {
-                return
-            }
-            
-            attachmentRangeToDelete = attachmentRange
-            stop.pointee = true
-        }
-        
-        // Delete the attachment if found
-        guard let rangeToDelete = attachmentRangeToDelete else { return }
-        
-        // Store current selection and scroll position
-        let currentSelection = selectedRange
-        let scrollPosition = contentOffset
-        
-        // Remove the attachment from text storage
-        textStorage.deleteCharacters(in: rangeToDelete)
-        
-        // Clean up metadata
-        imageMetadataDict.removeValue(forKey: metadata.id)
-        
-        // Adjust selection if it was after the deleted attachment
-        let adjustedSelection: NSRange
-        if currentSelection.location > rangeToDelete.location {
-            let newLocation = max(rangeToDelete.location, currentSelection.location - rangeToDelete.length)
-            adjustedSelection = NSRange(location: newLocation, length: currentSelection.length)
-        } else {
-            adjustedSelection = currentSelection
-        }
-        
-        // Restore selection and scroll position
-        selectedRange = adjustedSelection
-        contentOffset = scrollPosition
-        
-        // Force layout update
-        setNeedsLayout()
-        layoutIfNeeded()
-    }
 }
 
 //MARK: - UITextViewDelegate
@@ -551,21 +362,12 @@ extension RichTextView: UITextViewDelegate {
             return
         }
         
-        print("textViewDidChangeSelection")
-        
-//        let location = textView.offset(from: textView.beginningOfDocument, to: range.start)
-//        if location < textView.attributedText.length {
-//            
-//            let attrs = textView.attributedText.attributes(at: location, effectiveRange: nil)
-//            interactor?.textAttributes.updateWith(attributes: attrs)
-//        }
-        
         let offset = textView.offset(from: textView.beginningOfDocument, to: range.start)
-                
+        
         let location = textView.offset(from: beginningOfDocument, to: range.start)
         let length = textView.offset(from: range.start, to: range.end)
         let nsRange = NSRange(location: location, length: length)
-
+        
         // Try to get attributes from the character to the left of the caret
         let adjustedLocation: Int
         if offset > 0 && nsRange.length <= 1 {
@@ -580,5 +382,30 @@ extension RichTextView: UITextViewDelegate {
         let attrs = textView.attributedText.attributes(at: adjustedLocation, effectiveRange: nil)
         textView.typingAttributes = attrs
         interactor?.textAttributes.updateWith(attributes: attrs)
+    }
+    
+    public func textViewDidChange(_ textView: UITextView) {
+        placeholderLabel?.isHidden = textView.attributedText.length != 0
+        interactor?.currentText = textView.attributedText
+    }
+    
+    public func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
+        
+        // Get the attributed text in the range that is about to be replaced
+        let attributedSubstring = textView.attributedText.attributedSubstring(from: range)
+        
+        var metadatas: [ImageMetadata] = []
+
+        attributedSubstring.enumerateAttribute(.attachment, in: NSRange(location: 0, length: attributedSubstring.length)) { value, _, _ in
+            if let attachment = value as? MetadataTextAttachment, let metadata = attachment.metadata {
+                metadatas.append(metadata)
+            }
+        }
+
+        if metadatas.isEmpty == false {
+            interactor?.imagesWereDeleted(metadatas: metadatas)
+        }
+        
+        return true
     }
 }

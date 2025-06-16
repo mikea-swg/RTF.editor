@@ -70,46 +70,10 @@ extension RichTextView: UIDropInteractionDelegate {
             guard let self else { return }
             guard let images = items as? [UIImage], let originalImage = images.first else { return }
             
-            insertImage(originalImage)
+            self.interactor?.insertImage(originalImage)
         }
     }
-    
-    func insertImage(_ originalImage: UIImage) {
-        
-        let onTap: (ImageMetadata) -> Void = { [weak self] metadata in
-            self?.interactor?.inspectorState = .image(metadata: metadata)
-        }
-        
-        let attachment = TextAttachmentFactory.createAttributedStringFromImage(originalImage,
-                                                                               textView: self,
-                                                                               onTap: onTap,
-                                                                               existingMetadata: nil)
-        imageMetadataDict[attachment.medatadata.id] = attachment.medatadata
-        
-        // Insert at selected range
-        if let selectedRange = self.selectedTextRange {
-            
-            let location = self.offset(from: self.beginningOfDocument, to: selectedRange.start)
-            let mutableText = NSMutableAttributedString(attributedString: self.attributedText)
-            mutableText.insert(attachment.string, at: location)
-            
-            let replacedText = replaceTextAttachments(in: mutableText)
-            self.attributedText = replacedText
-            
-            // Restore cursor after the image
-            if let newPosition = self.position(from: selectedRange.start, offset: attachment.string.length) {
-                selectedTextRange = textRange(from: newPosition, to: newPosition)
-            }
-        } else {
-            // Fallback: Append to the end
-            let mutableText = NSMutableAttributedString(attributedString: attributedText)
-            mutableText.append(attachment.string)
-            
-            let replacedText = replaceTextAttachments(in: mutableText)
-            self.attributedText = replacedText
-        }
-    }
-    
+
     /// The drop interaction operation for a certain session.
     public func dropInteractionOperation(for session: UIDropSession) -> UIDropOperation {
         guard session.hasDroppableContent else { return .forbidden }

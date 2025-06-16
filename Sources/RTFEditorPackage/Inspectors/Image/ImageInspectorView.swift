@@ -10,8 +10,9 @@ import SwiftUI
 struct ImageInspectorView: View {
     
     @Bindable var metadata: ImageMetadata
-    var onMetadataChanged: (() -> Void)?
-    var onDelete: (() -> Void)?
+    
+    var onMetadataChanged: ((_ metadata: ImageMetadata) -> Void)?
+    var onDelete: ((_ metadata: ImageMetadata) -> Void)?
     
     private enum Segment: Int {
         case size
@@ -27,7 +28,6 @@ struct ImageInspectorView: View {
     var body: some View {
 
         Form {
-            
             Picker("Resize Mode", selection: $selectedSegment) {
                 Text("Size").tag(Segment.size)
                 Text("Style").tag(Segment.style)
@@ -82,7 +82,7 @@ struct ImageInspectorView: View {
             Spacer()
 
             Button {
-                onDelete?()
+                onDelete?(metadata)
             } label: {
                 Image(systemName: "trash")
                     .tint(.red)
@@ -103,14 +103,14 @@ struct ImageInspectorView: View {
     private func sizeControls() -> some View {
         
         Section {
-            StepperWithText(text: "Width", value: $metadata.width, range: 1...(max(metadata.originalSize.width, 2000))) {
+            StepperWithText(text: "Width", value: $metadata.width, range: 1...(max(metadata.maxSize.width, 2000))) {
                 if metadata.lockAspectRatio {
                     metadata.height = metadata.width / metadata.originalAspectRatio
                 }
                 metadataChanged()
             }
             
-            StepperWithText(text: "Height", value: $metadata.height, range: 1...(max(metadata.originalSize.height, 2000))) {
+            StepperWithText(text: "Height", value: $metadata.height, range: 1...(max(metadata.maxSize.height, 2000))) {
                 if metadata.lockAspectRatio {
                     metadata.width = metadata.height * metadata.originalAspectRatio
                 }
@@ -258,7 +258,7 @@ struct ImageInspectorView: View {
     }
     
     private func metadataChanged() {
-        onMetadataChanged?()
+        onMetadataChanged?(metadata)
     }
 }
 
@@ -294,5 +294,6 @@ extension ImageInspectorView {
 }
 
 #Preview {
-    ImageInspectorView(metadata: ImageMetadata(image: UIImage(systemName: "pencil")!))
+    ImageInspectorView(metadata: ImageMetadata(image: UIImage(systemName: "pencil")!,
+                                               defaultSize: CGSize(width: 200, height: 400)))
 }

@@ -9,11 +9,15 @@ import SwiftUI
 
 public struct RichTextViewRepresentable: UIViewRepresentable {
 
-    var interactor: RichTextViewInteractor
+    public let interactor: RichTextViewInteractor
+    
+    public init(interactor: RichTextViewInteractor) {
+        self.interactor = interactor
+    }
     
     public func makeUIView(context: Context) -> RichTextView {
-        let view = RichTextView()
-        view.interactor = interactor
+        print("RichTextViewRepresentable: making new editor!")
+        let view = RichTextView(interactor: interactor)
         return view
     }
 
