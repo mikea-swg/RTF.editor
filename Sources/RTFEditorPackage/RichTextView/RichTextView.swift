@@ -11,7 +11,7 @@ import UniformTypeIdentifiers
 
 public class RichTextView: UITextView, UITextPasteDelegate {
     
-    public let interactor: RichTextViewInteractor?
+    public let interactor: RichTextViewInteractor
     
     internal var imageMetadataDict: [UUID: ImageMetadata] = [:]
     
@@ -23,11 +23,13 @@ public class RichTextView: UITextView, UITextPasteDelegate {
         super.init(frame: .zero, textContainer: nil)
 
         setup()
+        
+        self.isEditable = interactor.isEditable
     }
     
     required init?(coder: NSCoder) {
         
-        self.interactor = nil
+        self.interactor = RichTextViewInteractor(isEditable: true)
         super.init(coder: coder)
         
         setup()
@@ -37,18 +39,39 @@ public class RichTextView: UITextView, UITextPasteDelegate {
     
     private func setup() {
         
+        interactor.isSetupInProgress = true
+        defer {
+            interactor.isSetupInProgress = false
+        }
+        
         interactorSetup()
         
-        self.addInteraction(UIDropInteraction(delegate: self))
         self.delegate = self
+        
+        if interactor.isEditable {
+            
+            interactions.forEach { interaction in
+                if interaction is UIDropInteraction {
+                    removeInteraction(interaction)
+                }
+            }
+            
+            self.addInteraction(UIDropInteraction(delegate: self))
+            self.isSelectable = true
+        }
         
         setupPlaceholder()
         
-        if let interactor, interactor.currentText.length > 0 {
+        if interactor.document.currentText.length > 0 {
             /// Sometimes SwiftUI creates new UIViewRepresentable and our current text dissappears.
             /// This will save the state.
-            self.attributedText = interactor.currentText
+            self.attributedText = interactor.document.currentText
             textViewDidChange(self)
+            
+            /// We need delay because `frame` is probably still not correctly set up.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) {
+                self.contentOffset = self.interactor.contentOffset
+            }
         }
     }
     
@@ -67,13 +90,14 @@ public class RichTextView: UITextView, UITextPasteDelegate {
     //MARK: - Interactor
     
     private func interactorSetup() {
-        
-        guard let interactor else { return }
-        
+                
         interactor.textView = self
         
         interactor.onTextLoaded = { [weak self] text in
-            self?.attributedText = text
+            guard let self else { return }
+            self.attributedText = text
+            /// Trigger placeholder change.
+            self.textViewDidChange(self)
         }
         
         interactor.onTextAttributesChanged = { [weak self] attributes, insertNewList in
@@ -86,14 +110,14 @@ public class RichTextView: UITextView, UITextPasteDelegate {
     @discardableResult
     public override func becomeFirstResponder() -> Bool {
         let result = super.becomeFirstResponder()
-        interactor?.isTextViewFirstResponder = result
+        interactor.isTextViewFirstResponder = result
         return result
     }
     
     @discardableResult
     public override func resignFirstResponder() -> Bool {
         let result = super.resignFirstResponder()
-        interactor?.isTextViewFirstResponder = result
+        interactor.isTextViewFirstResponder = result
         return result
     }
     
@@ -125,7 +149,7 @@ public class RichTextView: UITextView, UITextPasteDelegate {
                 guard let image = object as? UIImage else { return }
                 
                 DispatchQueue.main.async {
-                    self.interactor?.insertImage(image)
+                    self.interactor.insertImage(image)
                     self.textViewDidChange(self) /// If the text is empty we need to trigger placeholder hide.
                 }
             }
@@ -137,6 +161,7 @@ public class RichTextView: UITextView, UITextPasteDelegate {
     //MARK: - Text Attributes Updates
     
     private func updateTextAttributes(_ attributes: TextAttributes, insertNewList: Bool) {
+        guard interactor.isEditable else { return }
         
         guard let textRange = self.selectedTextRange else { return }
         
@@ -269,7 +294,7 @@ public class RichTextView: UITextView, UITextPasteDelegate {
         // Update attributes to match deleted character
         if let attrs = deletedCharAttributes {
             typingAttributes = attrs
-            interactor?.textAttributes.updateWith(attributes: attrs)
+            interactor.textAttributes.updateWith(attributes: attrs)
         }
     }
     
@@ -319,7 +344,7 @@ public class RichTextView: UITextView, UITextPasteDelegate {
         typingAttributes = updatedAttributes
         
         // Update interactor with the complete attribute set
-        interactor?.textAttributes.updateWith(attributes: updatedAttributes)
+        interactor.textAttributes.updateWith(attributes: updatedAttributes)
         
         // In-place removal of ZWS from the paragraph range
         
@@ -356,6 +381,7 @@ public class RichTextView: UITextView, UITextPasteDelegate {
 extension RichTextView: UITextViewDelegate {
     
     public func textViewDidChangeSelection(_ textView: UITextView) {
+        guard interactor.isEditable else { return }
         
         guard ignoreDidChangeSelection == false,
               let range = textView.selectedTextRange else {
@@ -375,21 +401,22 @@ extension RichTextView: UITextViewDelegate {
         } else if offset < textView.attributedText.length {
             adjustedLocation = offset
         } else {
-            interactor?.textAttributes.updateWith(attributes: textView.typingAttributes)
+            interactor.textAttributes.updateWith(attributes: textView.typingAttributes)
             return
         }
         
         let attrs = textView.attributedText.attributes(at: adjustedLocation, effectiveRange: nil)
         textView.typingAttributes = attrs
-        interactor?.textAttributes.updateWith(attributes: attrs)
+        interactor.textAttributes.updateWith(attributes: attrs)
     }
     
     public func textViewDidChange(_ textView: UITextView) {
         placeholderLabel?.isHidden = textView.attributedText.length != 0
-        interactor?.currentText = textView.attributedText
+        interactor.document.textChanged(textView.attributedText)
     }
     
     public func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
+        guard interactor.isEditable else { return false }
         
         // Get the attributed text in the range that is about to be replaced
         let attributedSubstring = textView.attributedText.attributedSubstring(from: range)
@@ -397,15 +424,19 @@ extension RichTextView: UITextViewDelegate {
         var metadatas: [ImageMetadata] = []
 
         attributedSubstring.enumerateAttribute(.attachment, in: NSRange(location: 0, length: attributedSubstring.length)) { value, _, _ in
-            if let attachment = value as? MetadataTextAttachment, let metadata = attachment.metadata {
+            if let attachment = value as? ImageMetadataTextAttachment, let metadata = attachment.metadata {
                 metadatas.append(metadata)
             }
         }
 
         if metadatas.isEmpty == false {
-            interactor?.imagesWereDeleted(metadatas: metadatas)
+            interactor.imagesWereDeleted(metadatas: metadatas)
         }
         
         return true
+    }
+    
+    public func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        interactor.contentOffset = scrollView.contentOffset
     }
 }

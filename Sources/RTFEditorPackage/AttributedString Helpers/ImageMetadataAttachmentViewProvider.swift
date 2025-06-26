@@ -8,7 +8,7 @@
 import UIKit
 import SwiftUI
 
-class MetadataAttachmentViewProvider: NSTextAttachmentViewProvider, @unchecked Sendable {
+class ImageMetadataAttachmentViewProvider: NSTextAttachmentViewProvider, @unchecked Sendable {
         
     let metadata: ImageMetadata
     let onTap: ((_ metadata: ImageMetadata) -> Void)?
@@ -44,7 +44,7 @@ class MetadataAttachmentViewProvider: NSTextAttachmentViewProvider, @unchecked S
                 return
             }
 
-            let containerView = MetadataAttachmentContainerView(image: image, metadata: metadata, onTap: onTap)
+            let containerView = ImageMetadataAttachmentContainerView(image: image, metadata: metadata, onTap: onTap)
             self.view = containerView
         }
     }

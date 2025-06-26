@@ -7,11 +7,45 @@
 
 import Observation
 import UIKit
+import Combine
 
 @Observable
 public final class RichTextViewInteractor {
     
+    public let isEditable: Bool
     weak var textView: RichTextView?
+    
+    public private(set) var textAttributes = TextAttributes()
+    
+    fileprivate enum DocumentLocation {
+        case none
+        case filename(_ name: String, _ fileMetadata: FileMetadata)
+        case fileURL(_ fileURL: URL, _ fileMetadata: FileMetadata)
+    }
+    
+    class Document {
+        
+        fileprivate(set) var currentText: NSAttributedString
+        fileprivate(set) var imageMetadataDict: [UUID: ImageMetadata] = [:]
+        fileprivate var documentLocation: DocumentLocation
+        
+        fileprivate init(currentText: NSAttributedString, imageMetadataDict: [UUID : ImageMetadata], documentLocation: DocumentLocation) {
+            self.currentText = currentText
+            self.imageMetadataDict = imageMetadataDict
+            self.documentLocation = documentLocation
+        }
+        
+        fileprivate func clearContent() {
+            currentText = NSAttributedString(string: "")
+            imageMetadataDict = [:]
+        }
+        
+        func textChanged(_ newText: NSAttributedString) {
+            currentText = newText
+        }
+    }
+    
+    var document: RichTextViewInteractor.Document
   
     @ObservationIgnored
     var onTextLoaded: ((_ text: NSAttributedString) -> Void)?
@@ -46,19 +80,7 @@ public final class RichTextViewInteractor {
     
     @ObservationIgnored
     public var onIsTextViewFirstResponderChanged: ((_ newValue: Bool) -> Void)?
-    
-    public private(set) var textAttributes = TextAttributes()
-    
-    @ObservationIgnored
-    var currentText: NSAttributedString {
-        didSet {
-            scheduleSaveTimer()
-        }
-    }
-    
-    @ObservationIgnored
-    var imageMetadataDict: [UUID: ImageMetadata] = [:]
-    
+        
     @ObservationIgnored
     public var autoSave: Bool = true
     
@@ -66,25 +88,27 @@ public final class RichTextViewInteractor {
     private var saveTimer: Timer?
     
     @ObservationIgnored
-    private var loadedTextFileURL: URL?
-    
-    private enum LoadedDocument {
-        case none
-        case filename(_ name: String)
-        case fileURL(_ fileURL: URL)
-    }
-    
-    @ObservationIgnored
-    private var loadedDocument: LoadedDocument = .none
-    
-    @ObservationIgnored
     var onSaveError: ((Error) -> Void)?
+
+    @ObservationIgnored
+    public let onSaveSubject = PassthroughSubject<Void, Never>()
+    
+    @ObservationIgnored
+    var isSetupInProgress: Bool = false
+    
+    @ObservationIgnored
+    var contentOffset: CGPoint = .zero
     
     //MARK: - Init
     
-    public init() {
+    public init(isEditable: Bool) {
         print("RichTextViewInteractor init")
-        currentText = NSAttributedString(string: "")
+        self.isEditable = isEditable
+        
+        self.document = RichTextViewInteractor.Document(currentText: NSAttributedString(string: ""),
+                                                        imageMetadataDict: [:],
+                                                        documentLocation: .none)
+        
     }
 }
 
@@ -104,32 +128,36 @@ extension RichTextViewInteractor {
 extension RichTextViewInteractor {
     
     //MARK: - Import
-    
     public func loadRTFD(filename: String) throws {
         
-        let result = try TextViewImportExport.loadFromRTFD(filename: filename)
-        onTextLoadResult(result: result)
+        isSetupInProgress = true
+        defer {
+            isSetupInProgress = false
+        }
         
-        loadedDocument = .filename(filename)
+        let result = try RtfDataImportExport.loadFromRTFD(filename: filename)
+        onTextLoadResult(result: result, documentLocation: .filename(filename, result.fileMetadata))
     }
     
     public func loadRTFD(url: URL) throws {
 
-        let result = try TextViewImportExport.loadFromRTFD(url: url)
-        onTextLoadResult(result: result)
-        
-        loadedDocument = .fileURL(url)
+        isSetupInProgress = true
+        defer {
+            isSetupInProgress = false
+        }
+        let result = try RtfDataImportExport.loadFromRTFD(url: url)
+        onTextLoadResult(result: result, documentLocation: .fileURL(url, result.fileMetadata))
     }
     
-    private func onTextLoadResult(result: TextViewImportExport.LoadResult) {
+    private func onTextLoadResult(result: RtfDataImportExport.LoadResult, documentLocation: DocumentLocation) {
         
         sinkToAttachmentsTapAction(attachments: result.attachments)
-        self.currentText = result.text
-        self.imageMetadataDict = result.metadata
+        self.document = Document(currentText: result.text, imageMetadataDict: result.metadata, documentLocation: documentLocation)
         onTextLoaded?(result.text)
     }
     
-    private func sinkToAttachmentsTapAction(attachments: [MetadataTextAttachment]) {
+    private func sinkToAttachmentsTapAction(attachments: [ImageMetadataTextAttachment]) {
+        guard isEditable else { return }
         
         attachments.forEach { [weak self] attachment in
             attachment.onTap = { [weak self] metadata in
@@ -140,48 +168,82 @@ extension RichTextViewInteractor {
     
     //MARK: - Export
     
+    private func fileMetadata() -> FileMetadata {
+        
+        let fileMetadata: FileMetadata? = switch document.documentLocation {
+        case .fileURL(_, let metadata):
+            metadata
+        case .filename(_, let metadata):
+            metadata
+        case .none:
+            nil
+        }
+        
+        let uFileMetadata = fileMetadata?.withNewUpdatedAt() ?? FileMetadata(createdAt: Date(), updatedAt: Date())
+        return uFileMetadata
+    }
+    
     public func exportToRTFD(filename: String, clearEditor: Bool) throws {
         
-        try TextViewImportExport.exportToRTFD(attributedText: currentText, imageMetadataDict: imageMetadataDict, filename: filename)
+        let uFileMetadata = fileMetadata()
+        
+        try RtfDataImportExport.exportToRTFD(attributedText: document.currentText,
+                                              imageMetadataDict: document.imageMetadataDict,
+                                              fileMetadata: uFileMetadata,
+                                              filename: filename)
         
         if clearEditor {
-            imageMetadataDict.removeAll()
-            currentText = NSAttributedString(string: "")
-            onTextLoaded?(currentText)
+            document.clearContent()
+            onTextLoaded?(document.currentText)
         }
     }
     
     public func exportToRTFD(fileURL: URL, clearEditor: Bool) throws {
         
-        try TextViewImportExport.exportToRTFD(attributedText: currentText, imageMetadataDict: imageMetadataDict, fileURL: fileURL)
+        let uFileMetadata = fileMetadata()
+        
+        try RtfDataImportExport.exportToRTFD(attributedText: document.currentText,
+                                              imageMetadataDict: document.imageMetadataDict,
+                                              fileMetadata: uFileMetadata,
+                                              fileURL: fileURL)
         
         if clearEditor {
-            imageMetadataDict.removeAll()
-            currentText = NSAttributedString(string: "")
-            onTextLoaded?(currentText)
+            document.clearContent()
+            onTextLoaded?(document.currentText)
         }
     }
     
-    public func exportAsRTFDDocument() -> RTFDDocument? {
+    public func exportAsRTFDDocument() -> RTFDDocument {
         
-        let document = RTFDDocument(attributedString: currentText, imageMetadataDict: imageMetadataDict)
+        let uFileMetadata = fileMetadata()
+        
+        let document = RTFDDocument(attributedString: document.currentText,
+                                    imageMetadataDict: document.imageMetadataDict,
+                                    fileMetadata: uFileMetadata)
         return document
     }
     
     //MARK: - Text Attributes
     
+    @MainActor
     public func textAttributesChanged(attributes: TextAttributes, insertNewList: Bool) {
+        guard isEditable else { return }
         
         onTextAttributesChanged?(attributes, insertNewList)
-        scheduleSaveTimer()
+        if let text = textView?.attributedText {
+            /// Trigger save.
+            self.document.currentText = text
+        }
     }
     
     //MARK: - Metadata
     
     @MainActor
     public func updateImageMetadata(_ metadata: ImageMetadata) {
+        guard isEditable else { return }
+        
         // Update the stored metadata
-        imageMetadataDict[metadata.id] = metadata
+        self.document.imageMetadataDict[metadata.id] = metadata
         
         // Find and update the specific attachment
         updateAttachmentWithId(metadata.id, newMetadata: metadata)
@@ -197,7 +259,7 @@ extension RichTextViewInteractor {
         let range = NSRange(location: 0, length: mutableString.length)
         
         mutableString.enumerateAttribute(.attachment, in: range, options: []) { value, attachmentRange, stop in
-            guard let attachment = value as? MetadataTextAttachment,
+            guard let attachment = value as? ImageMetadataTextAttachment,
                   let fileWrapper = attachment.fileWrapper,
                   let filename = fileWrapper.filename,
                   let uuid = TextAttachmentFactory.metadataIdFromFileWrapperName(filename),
@@ -245,6 +307,7 @@ extension RichTextViewInteractor {
     
     @MainActor
     func insertImage(_ originalImage: UIImage) {
+        guard isEditable else { return }
         
         guard let textView = self.textView else { return }
         
@@ -257,7 +320,7 @@ extension RichTextViewInteractor {
                                                                                onTap: onTap,
                                                                                existingMetadata: nil)
         
-        imageMetadataDict[attachment.medatadata.id] = attachment.medatadata
+        document.imageMetadataDict[attachment.medatadata.id] = attachment.medatadata
         
         // Insert at selected range
         if let selectedRange = textView.selectedTextRange {
@@ -266,7 +329,7 @@ extension RichTextViewInteractor {
             let mutableText = NSMutableAttributedString(attributedString: textView.attributedText)
             mutableText.insert(attachment.string, at: location)
             
-            let result = TextViewImportExport.replaceTextAttachments(in: mutableText, imagesMetadataDict: imageMetadataDict)
+            let result = TextInteraction.replaceTextAttachments(in: mutableText, imagesMetadataDict: document.imageMetadataDict)
             textView.attributedText = result.text
             sinkToAttachmentsTapAction(attachments: result.attachments)
             
@@ -279,19 +342,22 @@ extension RichTextViewInteractor {
             let mutableText = NSMutableAttributedString(attributedString: textView.attributedText)
             mutableText.append(attachment.string)
             
-            let result = TextViewImportExport.replaceTextAttachments(in: mutableText, imagesMetadataDict: imageMetadataDict)
+            let result = TextInteraction.replaceTextAttachments(in: mutableText, imagesMetadataDict: document.imageMetadataDict)
             textView.attributedText = result.text
             sinkToAttachmentsTapAction(attachments: result.attachments)
         }
         
-        scheduleSaveTimer()
+        document.currentText = textView.attributedText
+        saveChanges()
     }
     
     //MARK: - Image Delete
     
     internal func imagesWereDeleted(metadatas: [ImageMetadata]) {
+        guard isEditable else { return }
+        
         for item in metadatas {
-            imageMetadataDict.removeValue(forKey: item.id)
+            document.imageMetadataDict.removeValue(forKey: item.id)
         }
         
         switch inspectorState {
@@ -309,6 +375,7 @@ extension RichTextViewInteractor {
     
     @MainActor
     public func deleteImageWithMetadata(_ metadata: ImageMetadata) {
+        guard isEditable else { return }
         
         guard let textView, let attributedText = textView.attributedText else { return }
         
@@ -318,7 +385,7 @@ extension RichTextViewInteractor {
         
         // Find the attachment with matching metadata
         mutableString.enumerateAttribute(.attachment, in: range, options: []) { value, attachmentRange, stop in
-            guard let attachment = value as? MetadataTextAttachment,
+            guard let attachment = value as? ImageMetadataTextAttachment,
                   let fileWrapper = attachment.fileWrapper,
                   let filename = fileWrapper.filename,
                   let uuid = TextAttachmentFactory.metadataIdFromFileWrapperName(filename),
@@ -333,28 +400,30 @@ extension RichTextViewInteractor {
         // Delete the attachment if found
         guard let rangeToDelete = attachmentRangeToDelete else { return }
         
+        /// Do not adjust selectedRange because it breaks rendering.
+        
         // Store current selection and scroll position
-        let currentSelection = textView.selectedRange
-        let scrollPosition = textView.contentOffset
+//        let currentSelection = textView.selectedRange
+//        let scrollPosition = textView.contentOffset
         
         // Remove the attachment from text storage
         textView.textStorage.deleteCharacters(in: rangeToDelete)
         
         // Clean up metadata
-        imageMetadataDict.removeValue(forKey: metadata.id)
+        document.imageMetadataDict.removeValue(forKey: metadata.id)
         
-        // Adjust selection if it was after the deleted attachment
-        let adjustedSelection: NSRange
-        if currentSelection.location > rangeToDelete.location {
-            let newLocation = max(rangeToDelete.location, currentSelection.location - rangeToDelete.length)
-            adjustedSelection = NSRange(location: newLocation, length: currentSelection.length)
-        } else {
-            adjustedSelection = currentSelection
-        }
-        
-        // Restore selection and scroll position
-        textView.selectedRange = adjustedSelection
-        textView.contentOffset = scrollPosition
+//        // Adjust selection if it was after the deleted attachment
+//        let adjustedSelection: NSRange
+//        if currentSelection.location > rangeToDelete.location {
+//            let newLocation = max(rangeToDelete.location, currentSelection.location - rangeToDelete.length)
+//            adjustedSelection = NSRange(location: newLocation, length: currentSelection.length)
+//        } else {
+//            adjustedSelection = currentSelection
+//        }
+//        
+//        // Restore selection and scroll position
+//        textView.selectedRange = adjustedSelection
+//        textView.contentOffset = scrollPosition
         
         // Force layout update
         textView.setNeedsLayout()
@@ -362,7 +431,7 @@ extension RichTextViewInteractor {
         
         textView.textViewDidChange(textView) // Trigger placeholder.
         
-        self.currentText = textView.attributedText
+        self.document.currentText = textView.attributedText
         
         scheduleSaveTimer()
     }
@@ -371,8 +440,9 @@ extension RichTextViewInteractor {
 extension RichTextViewInteractor {
     
     func scheduleSaveTimer() {
+        guard isEditable, isSetupInProgress == false else { return }
         
-        switch loadedDocument {
+        switch document.documentLocation {
         case .none:
             return
         default:
@@ -388,20 +458,24 @@ extension RichTextViewInteractor {
     }
     
     public func saveChanges() {
+        guard isEditable else { return }
         
         print("Saving changes")
         
-        self.saveTimer = nil
+        saveTimer?.invalidate()
+        saveTimer = nil
         
         do {
-            switch self.loadedDocument {
+            switch self.document.documentLocation {
             case .none:
                 return
-            case .fileURL(let url):
+            case .fileURL(let url, let fileMetadata):
                 try self.exportToRTFD(fileURL: url, clearEditor: false)
-            case .filename(let name):
+            case .filename(let name, let fileMetadata):
                 try self.exportToRTFD(filename: name, clearEditor: false)
             }
+            
+            onSaveSubject.send()
         } catch {
             self.onSaveError?(error)
         }

@@ -243,5 +243,5 @@ public struct RTFEditorView: View {
 }
 
 #Preview {
-    RTFEditorView(interactor: RichTextViewInteractor())
+    RTFEditorView(interactor: RichTextViewInteractor(isEditable: true))
 }

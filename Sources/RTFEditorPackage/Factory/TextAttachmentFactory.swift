@@ -48,7 +48,7 @@ struct TextAttachmentFactory {
         let metadata = existingMetadata ?? ImageMetadata(image: scaledImage, defaultSize: defaultSize)
         
         // Create text attachment
-        let attachment = MetadataTextAttachment()
+        let attachment = ImageMetadataTextAttachment()
         attachment.metadata = metadata
         attachment.onTap = onTap
         

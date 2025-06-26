@@ -1,5 +1,5 @@
 //
-//  MetadataAttachmentContainerView.swift
+//  ImageMetadataAttachmentContainerView.swift
 //  RTFEditor
 //
 //  Created by Josip Bernat on 29.05.2025..
@@ -7,7 +7,7 @@
 
 import UIKit
 
-class MetadataAttachmentContainerView: UIView {
+class ImageMetadataAttachmentContainerView: UIView {
     
     private let imageView: UIImageView
     private let tapButton: UIButton

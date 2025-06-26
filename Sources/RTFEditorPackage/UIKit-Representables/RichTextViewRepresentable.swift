@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import UniformTypeIdentifiers
 
 public struct RichTextViewRepresentable: UIViewRepresentable {
 
@@ -16,7 +17,6 @@ public struct RichTextViewRepresentable: UIViewRepresentable {
     }
     
     public func makeUIView(context: Context) -> RichTextView {
-        print("RichTextViewRepresentable: making new editor!")
         let view = RichTextView(interactor: interactor)
         return view
     }

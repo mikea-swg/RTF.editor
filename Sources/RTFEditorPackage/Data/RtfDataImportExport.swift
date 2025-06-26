@@ -8,12 +8,14 @@
 import Foundation
 import UIKit
 
-public struct TextViewImportExport {
+public struct RtfDataImportExport {
     
-    private static let metadataName = "metadata.json"
+    private static let imageMetadataName = "image_metadata.json"
+    private static let fileMetadataName = "file_metadata.json"
     
     static func exportFileWrapper(attributedText: NSAttributedString,
-                                  imageMetadataDict: [UUID: ImageMetadata]) throws -> FileWrapper {
+                                  imageMetadataDict: [UUID: ImageMetadata],
+                                  fileMetadata: FileMetadata) throws -> FileWrapper {
         
         let attributedText = removeZWSFromAttributedText(attributedText)
         
@@ -30,49 +32,72 @@ public struct TextViewImportExport {
         } catch {
             throw error
         }
+                
+        let imagesFileWrapper = try createFileWrapperFor(encodable: Array(imageMetadataDict.values), fileName: imageMetadataName)
+        rtfdWrapper.addFileWrapper(imagesFileWrapper)
+        filterOutUnusedImageWrappers(imageMetadataDict: imageMetadataDict, fileWrapper: rtfdWrapper)
         
-        let imagesJson: [[String: Any]] = imageMetadataDict
-            .values
-            .map({ $0.jsonDict() })
+        let fileMetadataWrapper = try createFileWrapperFor(encodable: fileMetadata, fileName: fileMetadataName)
+        rtfdWrapper.addFileWrapper(fileMetadataWrapper)
+
+        return rtfdWrapper
+    }
+    
+    private static func createFileWrapperFor<T: Encodable>(encodable object: T, fileName: String) throws -> FileWrapper {
         
-        let jsonData = try JSONSerialization.data(withJSONObject: imagesJson, options: [.prettyPrinted])
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .prettyPrinted
+        let jsonData = try encoder.encode(object)
         
         let jsonWrapper = FileWrapper(regularFileWithContents: jsonData)
-        jsonWrapper.preferredFilename = metadataName
-        rtfdWrapper.addFileWrapper(jsonWrapper)
+        jsonWrapper.preferredFilename = fileName
+        return jsonWrapper
+    }
+    
+    private static func filterOutUnusedImageWrappers(imageMetadataDict: [UUID: ImageMetadata], fileWrapper: FileWrapper) {
         
         // Filter out unused image wrappers
         let validImageFilenames = imageMetadataDict
             .keys
             .map({ TextAttachmentFactory.createFileWrapperName(id: $0) })
         
-        for (filename, wrapper) in rtfdWrapper.fileWrappers ?? [:] {
-            if filename != metadataName,
-               isImage(filename: filename),
-               validImageFilenames.contains(filename) == false {
-                
-                rtfdWrapper.removeFileWrapper(wrapper)
+        let fileWrappers = (fileWrapper.fileWrappers ?? [:])
+            .filter({
+                $0.key != imageMetadataName && $0.key != fileMetadataName && isImage(filename: $0.key)
+            })
+        
+        for (filename, wrapper) in fileWrappers {
+            if validImageFilenames.contains(filename) == false {
+                fileWrapper.removeFileWrapper(wrapper)
             }
         }
-        
-        return rtfdWrapper
     }
     
     static func exportToRTFD(attributedText: NSAttributedString,
                              imageMetadataDict: [UUID: ImageMetadata],
+                             fileMetadata: FileMetadata,
                              filename: String) throws {
                 
         let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
-        let fileURL = documentsURL.appendingPathComponent("\(filename)\(RichTextConstants.rtfdslExtension)", isDirectory: true)
         
-        try exportToRTFD(attributedText: attributedText, imageMetadataDict: imageMetadataDict, fileURL: fileURL)
+        let uFilename = filename.contains(RichTextConstants.rtfdslExtension) ? filename : "\(filename)\(RichTextConstants.rtfdslExtension)"
+        let fileURL = documentsURL.appendingPathComponent("\(uFilename)", isDirectory: true)
+        
+        try exportToRTFD(attributedText: attributedText,
+                         imageMetadataDict: imageMetadataDict,
+                         fileMetadata: fileMetadata,
+                         fileURL: fileURL)
     }
 
     public static func exportToRTFD(attributedText: NSAttributedString,
                                     imageMetadataDict: [UUID: ImageMetadata],
+                                    fileMetadata: FileMetadata,
                                     fileURL: URL) throws {
         
-        let rtfdWrapper = try self.exportFileWrapper(attributedText: attributedText, imageMetadataDict: imageMetadataDict)
+        let rtfdWrapper = try self.exportFileWrapper(attributedText: attributedText,
+                                                     imageMetadataDict: imageMetadataDict,
+                                                     fileMetadata: fileMetadata)
+        
         try rtfdWrapper.write(to: fileURL, options: .atomic, originalContentsURL: nil)
     }
     
@@ -122,7 +147,8 @@ public struct TextViewImportExport {
     struct LoadResult {
         let text: NSAttributedString
         let metadata: [UUID: ImageMetadata]
-        let attachments: [MetadataTextAttachment]
+        let attachments: [ImageMetadataTextAttachment]
+        let fileMetadata: FileMetadata
     }
     
     static func loadFromRTFD(fileWrapper: FileWrapper) throws -> LoadResult {
@@ -130,7 +156,7 @@ public struct TextViewImportExport {
         // Write temporarily to disk (RTFD requires directory structure)
         let tempURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
-            .appendingPathExtension("rtfd")
+            .appendingPathExtension(RichTextConstants.rtfdslExtension)
         
         try fileWrapper.write(to: tempURL, options: .atomic, originalContentsURL: nil)
         
@@ -168,60 +194,49 @@ public struct TextViewImportExport {
             documentAttributes: nil
         )
         
-        let metadataURL = url.appendingPathComponent(metadataName)
-        var metadata: [[String: Any]]? = nil
-        if FileManager.default.fileExists(atPath: metadataURL.path) {
-            let data = try Data(contentsOf: metadataURL)
-            metadata = try JSONSerialization.jsonObject(with: data) as? [[String: Any]]
-        }
+        let imagesMetadataDict = try loadImagesMetadata(url: url)
+        let replaced = TextInteraction.replaceTextAttachments(in: attributedString, imagesMetadataDict: imagesMetadataDict)
         
-        let imagesMetadata = metadata?
-            .compactMap({
-                ImageMetadata.fromJsonDict($0)
-            })
-            .reduce(into: [UUID: ImageMetadata](), { partialResult, item in
-                partialResult[item.id] = item
-            }) ?? [:]
-        
-        let replaced = replaceTextAttachments(in: attributedString, imagesMetadataDict: imagesMetadata)
+        let fileMetadata = try loadFileMetadata(url: url)
         
         return LoadResult(text: replaced.text,
-                          metadata: imagesMetadata,
-                          attachments: replaced.attachments)
+                          metadata: imagesMetadataDict,
+                          attachments: replaced.attachments,
+                          fileMetadata: fileMetadata)
     }
     
-    static func replaceTextAttachments(in attributedString: NSAttributedString, imagesMetadataDict: [UUID: ImageMetadata]) -> (text: NSAttributedString,
-                                                                                                                               attachments: [MetadataTextAttachment]) {
+    private static func loadImagesMetadata(url: URL) throws -> [UUID: ImageMetadata] {
         
-        let mutableString = NSMutableAttributedString(attributedString: attributedString)
-        var attachments = [MetadataTextAttachment]()
+        let metadataURL = url.appendingPathComponent(imageMetadataName)
+        guard FileManager.default.fileExists(atPath: metadataURL.path) else {
+            return [:]
+        }
+                
+        let data = try Data(contentsOf: metadataURL)
+        let array = try JSONDecoder().decode([ImageMetadata].self, from: data)
         
-        let range = NSRange(location: 0, length: mutableString.length)
+        let metadataDict = array.reduce(into: [UUID: ImageMetadata](), { partialResult, metadata in
+            partialResult[metadata.id] = metadata
+        })
+        return metadataDict
+    }
+    
+    public enum LoadError: Error {
+        case fileMetadataIsMissing
+    }
+    
+    public static func loadFileMetadata(url: URL) throws -> FileMetadata {
         
-        mutableString.enumerateAttribute(.attachment, in: range, options: []) { value, attachmentRange, stop in
-            guard let originalAttachment = value as? NSTextAttachment,
-                  let fileWrapper = originalAttachment.fileWrapper,
-                  let filename = fileWrapper.filename,
-                  let uuid = TextAttachmentFactory.metadataIdFromFileWrapperName(filename),
-                  let metadata = imagesMetadataDict[uuid] else {
-                return
-            }
-            
-            guard originalAttachment is MetadataTextAttachment == false else { return }
-            
-            // Create new styled attachment
-            let styledAttachment = MetadataTextAttachment()
-            styledAttachment.fileWrapper = fileWrapper
-            styledAttachment.metadata = metadata
-            //            styledAttachment.onTap = { [weak self] metadata in
-            //                interactor?.inspectorState = .image(metadata: metadata)
-            //            }
-            attachments.append(styledAttachment)
-            
-            // Replace the attachment
-            mutableString.addAttribute(.attachment, value: styledAttachment, range: attachmentRange)
+        let metadataURL = url.appendingPathComponent(fileMetadataName)
+
+        guard FileManager.default.fileExists(atPath: metadataURL.path) else {
+            throw LoadError.fileMetadataIsMissing
         }
         
-        return (mutableString, attachments)
+        let data = try Data(contentsOf: metadataURL)
+        let result = try JSONDecoder().decode(FileMetadata.self, from: data)
+        return result
     }
 }
+
+

@@ -1,5 +1,5 @@
 //
-//  MetadataTextAttachment.swift
+//  ImageMetadataTextAttachment.swift
 //  RTFEditor
 //
 //  Created by Josip Bernat on 28.05.2025..
@@ -7,7 +7,7 @@
 
 import UIKit
 
-class MetadataTextAttachment: NSTextAttachment {
+class ImageMetadataTextAttachment: NSTextAttachment {
     
     var metadata: ImageMetadata?
     var onTap: ((_ metadata: ImageMetadata) -> Void)?
@@ -39,7 +39,7 @@ class MetadataTextAttachment: NSTextAttachment {
         }
                 
         // Create your custom view provider
-        return MetadataAttachmentViewProvider(attachment: self,
+        return ImageMetadataAttachmentViewProvider(attachment: self,
                                               parentView: parentView,
                                               textLayoutManager: textLayoutManager,
                                               location: location,

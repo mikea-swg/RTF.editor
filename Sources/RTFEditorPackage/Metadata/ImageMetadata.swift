@@ -153,41 +153,6 @@ public final class ImageMetadata: Codable {
     }
 }
 
-extension ImageMetadata {
-    
-    func jsonDict() -> [String: Any] {
-        do {
-            let encoder = JSONEncoder()
-            let data = try encoder.encode(self)
-            let dict = try JSONSerialization.jsonObject(with: data, options: []) as? [String: Any]
-            return dict ?? [:]
-        } catch {
-            fatalError("An error occurred while serializing ImageResizeViewModel: \(error)")
-        }
-    }
-    
-    static func fromJsonDict(_ dict: [String: Any]) -> ImageMetadata? {
-        guard let data = try? JSONSerialization.data(withJSONObject: dict, options: []),
-              let result = try? JSONDecoder().decode(ImageMetadata.self, from: data) else {
-            return nil
-        }
-        return result
-    }
-}
-
-extension Data {
-    
-    func asImageMetadata() -> ImageMetadata? {
-        do {
-            let result = try JSONDecoder().decode(ImageMetadata.self, from: self)
-            return result
-        } catch {
-            print("Error parsing JSON: \(error)")
-            return nil
-        }
-    }
-}
-
 struct CodableColor: Codable {
     
     let red: Double

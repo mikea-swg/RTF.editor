@@ -27,7 +27,7 @@ extension UIDropSession {
 extension RichTextView: UIDropInteractionDelegate {
     
     var supportedDropInteractionTypes: [UTType] {
-        [.image, .text, .plainText, .utf8PlainText, .utf16PlainText]
+        [.image, .text, .plainText, .utf8PlainText, .utf16PlainText, .rtfdsl]
     }
     
     /// Whether or not the view can handle a drop session.
@@ -52,12 +52,16 @@ extension RichTextView: UIDropInteractionDelegate {
             fatalError()
         }
         
-        becomeFirstResponder()
         let point = session.location(in: self)
+        
+        // This works fine with TextKit 2
         if let position = closestPosition(to: point) {
             selectedTextRange = textRange(from: position, to: position)
+        } else {
+            // Better fallback handling
+            selectedTextRange = textRange(from: endOfDocument, to: endOfDocument)
         }
-        
+                
         proposal.isPrecise = true
         return proposal
     }
@@ -66,17 +70,27 @@ extension RichTextView: UIDropInteractionDelegate {
         
         guard session.canLoadObjects(ofClass: UIImage.self) else { return }
         
+        let point = session.location(in: self)
+        
+        // This works fine with TextKit 2
+        if let position = closestPosition(to: point) {
+            selectedTextRange = textRange(from: position, to: position)
+        } else {
+            // Better fallback handling
+            selectedTextRange = textRange(from: endOfDocument, to: endOfDocument)
+        }
+                
         session.loadObjects(ofClass: UIImage.self) { [weak self] items in
             guard let self else { return }
             guard let images = items as? [UIImage], let originalImage = images.first else { return }
             
-            self.interactor?.insertImage(originalImage)
+            self.interactor.insertImage(originalImage)
         }
     }
 
     /// The drop interaction operation for a certain session.
     public func dropInteractionOperation(for session: UIDropSession) -> UIDropOperation {
-        guard session.hasDroppableContent else { return .forbidden }
+        guard session.hasDroppableContent, interactor.isEditable else { return .forbidden }
         
         let location = session.location(in: self)
         return bounds.contains(location) ? .copy : .cancel
