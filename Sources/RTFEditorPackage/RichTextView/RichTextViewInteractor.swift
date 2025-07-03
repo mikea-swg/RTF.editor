@@ -402,28 +402,11 @@ extension RichTextViewInteractor {
         
         /// Do not adjust selectedRange because it breaks rendering.
         
-        // Store current selection and scroll position
-//        let currentSelection = textView.selectedRange
-//        let scrollPosition = textView.contentOffset
-        
         // Remove the attachment from text storage
         textView.textStorage.deleteCharacters(in: rangeToDelete)
         
         // Clean up metadata
         document.imageMetadataDict.removeValue(forKey: metadata.id)
-        
-//        // Adjust selection if it was after the deleted attachment
-//        let adjustedSelection: NSRange
-//        if currentSelection.location > rangeToDelete.location {
-//            let newLocation = max(rangeToDelete.location, currentSelection.location - rangeToDelete.length)
-//            adjustedSelection = NSRange(location: newLocation, length: currentSelection.length)
-//        } else {
-//            adjustedSelection = currentSelection
-//        }
-//        
-//        // Restore selection and scroll position
-//        textView.selectedRange = adjustedSelection
-//        textView.contentOffset = scrollPosition
         
         // Force layout update
         textView.setNeedsLayout()
@@ -450,11 +433,12 @@ extension RichTextViewInteractor {
         }
              
         saveTimer?.invalidate()
-        let timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: false) { [weak self] _ in
+        let timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: false) { [weak self] timer in
             
-            guard let self else { return }
+            guard let self, timer.isValid else { return }
             saveChanges()
         }
+        self.saveTimer = timer
     }
     
     public func saveChanges() {
