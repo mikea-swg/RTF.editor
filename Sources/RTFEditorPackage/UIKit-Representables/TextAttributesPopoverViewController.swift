@@ -13,15 +13,19 @@ public final class TextAttributesPopoverViewController: UIViewController {
     @Bindable public var attributes: TextAttributes
     @Binding public var contentHeight: CGFloat
     public var onAttributesChanged: ((_ attributes: TextAttributes, _ insertNewList: Bool) -> Void)?
+    public var onInsertImage: ((_ newImage: UIImage) -> Void)?
     
     public init(attributes: TextAttributes,
                 contentHeight: Binding<CGFloat>,
-                onAttributesChanged: ((_ attributes: TextAttributes, _: Bool) -> Void)? = nil) {
+                onAttributesChanged: ((_ attributes: TextAttributes, _: Bool) -> Void)? = nil,
+                onInsertImage: ((_ newImage: UIImage) -> Void)? = nil) {
         
         /// We must set values this way otherwise we are getting errors.
         self._attributes = Bindable(wrappedValue: attributes)
         self._contentHeight = contentHeight
         self.onAttributesChanged = onAttributesChanged
+        self.onInsertImage = onInsertImage
+        
         super.init(nibName: nil, bundle: nil)
     }
     
@@ -37,7 +41,7 @@ public final class TextAttributesPopoverViewController: UIViewController {
     public override func viewDidLoad() {
         super.viewDidLoad()
         
-        self.title = NSLocalizedString("Text", comment: "")
+        self.title = NSLocalizedString("Options", comment: "").uppercased()
         
         self.view.backgroundColor = .systemGroupedBackground
         
@@ -58,7 +62,8 @@ public final class TextAttributesPopoverViewController: UIViewController {
         
         let swiftUIView = TextInspectorView(attributes: attributes,
                                             contentHeight: adjustedContentHeight,
-                                            onAttributesChanged: onAttributesChanged)
+                                            onAttributesChanged: onAttributesChanged,
+                                            onInsertImage: onInsertImage)
         
         let hostingViewController = UIHostingController(rootView: swiftUIView)
         addChild(hostingViewController)

@@ -62,6 +62,11 @@ public class RichTextView: UITextView, UITextPasteDelegate {
         
         setupPlaceholder()
         
+        self.textContainerInset = UIEdgeInsets(top: textContainerInset.top + 4.0,
+                                               left: textContainerInset.left,
+                                               bottom: textContainerInset.bottom,
+                                               right: textContainerInset.right)
+        
         if interactor.document.currentText.length > 0 {
             /// Sometimes SwiftUI creates new UIViewRepresentable and our current text dissappears.
             /// This will save the state.
@@ -84,7 +89,7 @@ public class RichTextView: UITextView, UITextPasteDelegate {
         placeholderLabel.textColor = .placeholderText
         placeholderLabel.sizeToFit()
         addSubview(placeholderLabel)
-        placeholderLabel.frame.origin = CGPoint(x: 8, y: 8)
+        placeholderLabel.frame.origin = CGPoint(x: 8, y: 12)
     }
     
     //MARK: - Interactor
@@ -150,7 +155,6 @@ public class RichTextView: UITextView, UITextPasteDelegate {
                 
                 DispatchQueue.main.async {
                     self.interactor.insertImage(image)
-                    self.textViewDidChange(self) /// If the text is empty we need to trigger placeholder hide.
                 }
             }
         }

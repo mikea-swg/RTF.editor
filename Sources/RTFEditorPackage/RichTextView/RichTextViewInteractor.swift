@@ -108,7 +108,6 @@ public final class RichTextViewInteractor {
         self.document = RichTextViewInteractor.Document(currentText: NSAttributedString(string: ""),
                                                         imageMetadataDict: [:],
                                                         documentLocation: .none)
-        
     }
 }
 
@@ -306,7 +305,7 @@ extension RichTextViewInteractor {
     //MARK: - Image Insert
     
     @MainActor
-    func insertImage(_ originalImage: UIImage) {
+    public func insertImage(_ originalImage: UIImage) {
         guard isEditable else { return }
         
         guard let textView = self.textView else { return }
@@ -349,6 +348,12 @@ extension RichTextViewInteractor {
         
         document.currentText = textView.attributedText
         saveChanges()
+        
+        // Force layout update
+        textView.setNeedsLayout()
+        textView.layoutIfNeeded()
+        
+        textView.textViewDidChange(textView) /// If the text is empty we need to trigger placeholder hide.
     }
     
     //MARK: - Image Delete

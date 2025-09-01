@@ -89,7 +89,7 @@ struct FontInspectorView: View {
                 }
             }
             .listStyle(.plain)
-            .navigationTitle("Fonts")
+            .navigationTitle("Fonts".uppercased())
             .onAppear {
                 DispatchQueue.main.async {
                     proxy.scrollTo(attributes.selectedFontFamily, anchor: .center)
@@ -103,7 +103,7 @@ struct FontInspectorView: View {
                 }
             }
         }
-        .navigationTitle("Fonts")
+        .navigationTitle("Fonts".uppercased())
     }
     
     private func toggleOnAttributesChanged() {

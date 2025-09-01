@@ -31,12 +31,12 @@ struct TextAttachmentFactory {
     }
     
     @MainActor
-    static func createAttributedStringFromImage(_ image: UIImage,
+    static func createAttributedStringFromImage(_ originalImage: UIImage,
                                                 textView: UITextView,
                                                 onTap: ((_ metadata: ImageMetadata) -> Void)?,
                                                 existingMetadata: ImageMetadata?) -> (string: NSAttributedString, medatadata: ImageMetadata) {
                 
-        let scaledImage = existingMetadata != nil ? image : self.resizeImage(image)
+        let scaledImage = existingMetadata != nil ? originalImage : self.resizeImage(originalImage)
         
         var defaultSize = scaledImage.size
         
